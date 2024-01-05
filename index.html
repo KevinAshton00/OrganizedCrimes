@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faction Organized Crimes</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+        }
+
+        h1 {
+            color: #3498db;
+        }
+
+        .countdown-red {
+            color: red;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+
+        tr:hover {
+            background-color: #e0f7fa;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        label {
+            margin-top: 10px;
+            display: block;
+        }
+
+        input {
+            padding: 5px;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            padding: 8px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        #membersCount {
+            margin-top: 10px;
+        }
+
+        #crimesTotal {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Faction's Organized Crimes</h1>
+
+<!-- Input field to enter API key -->
+<label for="apiKey">Enter API Key:</label>
+<input type="text" id="apiKey" placeholder="Enter your API key">
+
+<!-- Buttons for saving API key and refreshing data -->
+<button onclick="saveApiKey()">Save API Key</button>
+<button onclick="fetchData()">Refresh Data</button>
+
+<!-- Display members count and crime data -->
+<div id="membersCount"></div>
+<div class="table-container">
+    <table id="crimeData">
+        <thead>
+            <tr>
+                <th>Crime Name</th>
+                <th>Participants</th>
+                <th>Time Started</th>
+                <th>Time Ready</th>
+                <th>Time Left</th>
+                <th>Initiated by</th>
+                <th>Planned by</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+<div id="crimesTotal"></div>
+
+<script>
+    // Function to fetch member data from the API
+    async function fetchMemberData(apiKey) {
+        const apiUrl = `https://api.torn.com/faction/?selections=basic&key=${apiKey}`;
+
+        try {
+            const response = await fetch(apiUrl);
+            const data = await response.json();
+            return data.members;
+        } catch (error) {
+            console.error('Error fetching member data:', error);
+            return {};
+        }
+    }
+
+    // Function to fetch data from the API
+    async function fetchData() {
+        const apiKey = localStorage.getItem('tornApiKey');
+        if (!apiKey) {
+            alert('Please enter and save your API key first.');
+            return;
+        }
+
+        const apiUrl = `https://api.torn.com/faction/?selections=crimes&key=${apiKey}`;
+
+        // Set the value of the API key input field
+        const apiKeyInput = document.getElementById('apiKey');
+        apiKeyInput.value = apiKey;
+
+        try {
+            const response = await fetch(apiUrl);
+            const data = await response.json();
+            const memberData = await fetchMemberData(apiKey);
+            displayMembersCount(memberData);
+            displayData(data.crimes, memberData);
+        } catch (error) {
+            console.error('Error fetching data:', error);
+        }
+    }
+
+    // Function to display members count
+    function displayMembersCount(memberData) {
+        const membersCountDiv = document.getElementById('membersCount');
+        const totalMembers = Object.keys(memberData).length;
+        membersCountDiv.textContent = `Total Members: ${totalMembers}`;
+    }
+
+    // Function to display data in the HTML
+    function displayData(crimes, memberData) {
+        const crimeDataBody = document.querySelector('#crimeData tbody');
+        crimeDataBody.innerHTML = ''; // Clear previous data
+
+        // Filter out crimes with "initiated": 1
+        const filteredCrimes = Object.values(crimes).filter(crime => crime.initiated === 0);
+
+        // Sort crimes based on time_left in ascending order
+        const sortedCrimes = filteredCrimes.sort((a, b) => a.time_left - b.time_left);
+
+        // Create a map of member names based on IDs
+        const memberNamesMap = {};
+        for (const memberId in memberData) {
+            memberNamesMap[memberId] = memberData[memberId].name;
+        }
+
+        // Loop through each sorted crime
+        for (const crime of sortedCrimes) {
+            const participants = crime.participants.map(participant => {
+                const participantId = Object.keys(participant)[0];
+                return memberNamesMap[participantId] || `Member ${participantId}`;
+            });
+
+            // Fetch planned by member name
+            const plannedByName = memberNamesMap[crime.planned_by] || `Member ${crime.planned_by}`;
+
+            // Format Time Started and Time Ready
+            const timeStartedFormatted = formatDate(crime.time_started * 1000);
+            const timeReadyFormatted = formatDate(crime.time_ready * 1000);
+
+            // Create a row for each crime
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${crime.crime_name}</td>
+                <td>${participants.join(', ')}</td>
+                <td>${timeStartedFormatted}</td>
+                <td>${timeReadyFormatted}</td>
+                <td><span id="countdown_${crime.time_left}" class="countdown"></span></td>
+                <td>${crime.initiated_by !== 0 ? memberNamesMap[crime.initiated_by] || 'Not initiated Yet' : 'Not initiated Yet'}</td>
+                <td>${plannedByName}</td>
+            `;
+
+            crimeDataBody.appendChild(row);
+
+            // Start the countdown for crimes with "time_left"
+            if (crime.time_left > 0) {
+                startCountdown(crime.time_left, `countdown_${crime.time_left}`);
+            }
+        }
+
+        // Calculate and display "Members Ready to be Assigned"
+        const totalParticipants = filteredCrimes.reduce((total, crime) => total + crime.participants.length, 0);
+        const membersReadyToBeAssigned = Object.keys(memberData).length - totalParticipants;
+
+        // Display the result only once
+        if (!document.getElementById('membersReadyToBeAssigned')) {
+            const membersCountDiv = document.getElementById('membersCount');
+            membersCountDiv.insertAdjacentHTML('beforeend', `<p id="membersReadyToBeAssigned">Members Ready to be Assigned: ${membersReadyToBeAssigned}</p>`);
+        }
+
+        // Display the total number of crimes
+        const crimesTotalDiv = document.getElementById('crimesTotal');
+        crimesTotalDiv.textContent = `Crimes Total: ${sortedCrimes.length}`;
+    }
+
+    // Function to start the countdown
+    function startCountdown(timeLeft, elementId) {
+        const countdownElement = document.getElementById(elementId);
+
+        function updateCountdown() {
+            const hours = Math.floor(timeLeft / 3600);
+            const minutes = Math.floor((timeLeft % 3600) / 60);
+            const seconds = timeLeft % 60;
+            countdownElement.textContent = `${padZero(hours)}:${padZero(minutes)}:${padZero(seconds)}`;
+
+            // Add red font if time left is under 3 hours
+            if (timeLeft < 10800) {
+                countdownElement.classList.add('countdown-red');
+            }
+
+            timeLeft--;
+
+            if (timeLeft < 0) {
+                clearInterval(countdownInterval);
+                countdownElement.textContent = 'Expired';
+            }
+        }
+
+        updateCountdown();
+        const countdownInterval = setInterval(updateCountdown, 1000);
+    }
+
+    // Function to save API key locally
+    function saveApiKey() {
+        const apiKey = document.getElementById('apiKey').value;
+        if (apiKey.trim() === '') {
+            alert('Please enter a valid API key.');
+            return;
+        }
+
+        localStorage.setItem('tornApiKey', apiKey);
+        alert('API key saved successfully.');
+    }
+
+    // Function to pad zero for single-digit numbers
+    function padZero(number) {
+        return number < 10 ? '0' + number : number;
+    }
+
+    // Function to format date as DD-MM-YYYY HH:MM:SS
+    function formatDate(timestamp) {
+        const date = new Date(timestamp);
+        const day = padZero(date.getDate());
+        const month = padZero(date.getMonth() + 1);
+        const year = date.getFullYear();
+        const hours = padZero(date.getHours());
+        const minutes = padZero(date.getMinutes());
+        const seconds = padZero(date.getSeconds());
+        return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+    }
+
+    // Fetch data when the page loads
+    fetchData();
+</script>
+
+</body>
+</html>
