@@ -108,6 +108,17 @@
 </div>
 <div id="crimesTotal"></div>
 
+<!-- Add a placeholder for members ready to be assigned -->
+<div id="membersCount"></div>
+
+<!-- Link to Faction's OCs -->
+<div style="text-align: center; margin-top: 20px;">
+    <a href="https://www.torn.com/factions.php?step=your#/tab=crimes" target="_blank">
+        <button style="background-color: #3498db; color: white; padding: 10px; cursor: pointer;">Faction's OCs</button>
+    </a>
+</div>
+
+
 <script>
     // Function to fetch member data from the API
     async function fetchMemberData(apiKey) {
@@ -155,26 +166,26 @@
         membersCountDiv.textContent = `Total Members: ${totalMembers}`;
     }
 
-    // Function to display data in the HTML
-    function displayData(crimes, memberData) {
-        const crimeDataBody = document.querySelector('#crimeData tbody');
-        crimeDataBody.innerHTML = ''; // Clear previous data
+// Function to display data in the HTML
+function displayData(crimes, memberData) {
+    const crimeDataBody = document.querySelector('#crimeData tbody');
+    crimeDataBody.innerHTML = ''; // Clear previous data
 
-        // Filter out crimes with "initiated": 1
-        const filteredCrimes = Object.values(crimes).filter(crime => crime.initiated === 0);
+    // Filter out crimes with "initiated": 1
+    const filteredCrimes = Object.values(crimes).filter(crime => crime.initiated === 0);
 
-        // Sort crimes based on time_left in ascending order
-        const sortedCrimes = filteredCrimes.sort((a, b) => a.time_left - b.time_left);
+    // Sort crimes based on time_left in ascending order
+    const sortedCrimes = filteredCrimes.sort((a, b) => a.time_left - b.time_left);
 
-        // Create a map of member names based on IDs
-        const memberNamesMap = {};
-        for (const memberId in memberData) {
-            memberNamesMap[memberId] = memberData[memberId].name;
-        }
+    // Create a map of member names based on IDs
+    const memberNamesMap = {};
+    for (const memberId in memberData) {
+        memberNamesMap[memberId] = memberData[memberId].name;
+    }
 
         // Loop through each sorted crime
         for (const crime of sortedCrimes) {
-            const participants = crime.participants.map(participant => {
+                const participants = crime.participants.map(participant => {
                 const participantId = Object.keys(participant)[0];
                 return memberNamesMap[participantId] || `Member ${participantId}`;
             });
@@ -198,34 +209,64 @@
                 <td>${plannedByName}</td>
             `;
 
+             // Add conditional formatting for expired crimes
+        if (crime.time_left <= 0) {
+            row.style.backgroundColor = '#81C784'; // Light green color
+        }
+
             crimeDataBody.appendChild(row);
 
-            // Start the countdown for crimes with "time_left"
+                        // Start the countdown for crimes with "time_left"
             if (crime.time_left > 0) {
                 startCountdown(crime.time_left, `countdown_${crime.time_left}`);
             }
         }
 
-        // Calculate and display "Members Ready to be Assigned"
-        const totalParticipants = filteredCrimes.reduce((total, crime) => total + crime.participants.length, 0);
-        const membersReadyToBeAssigned = Object.keys(memberData).length - totalParticipants;
+    // Calculate and display "Members Ready to be Assigned"
+    const totalParticipants = filteredCrimes.reduce((total, crime) => total + crime.participants.length, 0);
+    const membersReadyToBeAssigned = Object.keys(memberData).length - totalParticipants;
 
-        // Display the result only once
-        if (!document.getElementById('membersReadyToBeAssigned')) {
-            const membersCountDiv = document.getElementById('membersCount');
-            membersCountDiv.insertAdjacentHTML('beforeend', `<p id="membersReadyToBeAssigned">Members Ready to be Assigned: ${membersReadyToBeAssigned}</p>`);
-        }
+    // Display the result
+    const membersCountDiv = document.getElementById('membersCount');
+    membersCountDiv.textContent = `Members Ready to be Assigned (Count): ${membersReadyToBeAssigned}`;
 
-        // Display the total number of crimes
-        const crimesTotalDiv = document.getElementById('crimesTotal');
-        crimesTotalDiv.textContent = `Crimes Total: ${sortedCrimes.length}`;
+    // Create links for members ready to be assigned
+    const membersReadyToBeAssignedDiv = document.createElement('div');
+    membersReadyToBeAssignedDiv.innerHTML = `Members Ready to be Assigned (Names): `;
+    const memberIdsReadyToBeAssigned = getMembersReadyToBeAssigned(filteredCrimes, memberData);
+    for (const memberId of memberIdsReadyToBeAssigned) {
+        const memberName = memberNamesMap[memberId] || `Member ${memberId}`;
+        const profileLink = `https://www.torn.com/profiles.php?XID=${memberId}`;
+        membersReadyToBeAssignedDiv.insertAdjacentHTML('beforeend', `<a href="${profileLink}" target="_blank">${memberName}</a>, `);
     }
 
-    // Function to start the countdown
-    function startCountdown(timeLeft, elementId) {
-        const countdownElement = document.getElementById(elementId);
+    // Append the member links to the document
+    membersCountDiv.appendChild(membersReadyToBeAssignedDiv);
 
-        function updateCountdown() {
+    // Display the total number of crimes
+    const crimesTotalDiv = document.getElementById('crimesTotal');
+    crimesTotalDiv.textContent = `Crimes Total: ${sortedCrimes.length}`;
+}
+
+    // Function to get member IDs ready to be assigned
+    function getMembersReadyToBeAssigned(filteredCrimes, memberData) {
+        const allMemberIds = Object.keys(memberData);
+        const participatingMemberIds = filteredCrimes.reduce((ids, crime) => {
+            return ids.concat(crime.participants.map(participant => Object.keys(participant)[0]));
+        }, []);
+
+        // Get the unique member IDs that are ready to be assigned
+        const membersReadyToBeAssignedIds = allMemberIds.filter(memberId => !participatingMemberIds.includes(memberId));
+
+        return membersReadyToBeAssignedIds;
+    }
+
+// Function to start the countdown
+function startCountdown(timeLeft, elementId) {
+    const countdownElement = document.getElementById(elementId);
+
+    function updateCountdown() {
+        if (timeLeft >= 0) {
             const hours = Math.floor(timeLeft / 3600);
             const minutes = Math.floor((timeLeft % 3600) / 60);
             const seconds = timeLeft % 60;
@@ -237,16 +278,15 @@
             }
 
             timeLeft--;
-
-            if (timeLeft < 0) {
-                clearInterval(countdownInterval);
-                countdownElement.textContent = 'Expired';
-            }
+        } else {
+            clearInterval(countdownInterval);
+            countdownElement.textContent = 'Ready';
         }
-
-        updateCountdown();
-        const countdownInterval = setInterval(updateCountdown, 1000);
     }
+
+    updateCountdown();
+    const countdownInterval = setInterval(updateCountdown, 1000);
+}
 
     // Function to save API key locally
     function saveApiKey() {
